@@ -44,6 +44,43 @@ Hash bytes use **canonical big-endian hexadecimal order**, matching Meta's
 `Hash256.format()`. `toBytes()` returns a copy. They are not a dump of Meta's
 native little-endian 16-bit word array.
 
+## Encoded images: files, bytes, and streams
+
+JPEG/PNG bytes are **encoded images**, not the decoded pixel buffers accepted
+by `Pdq.calculate`. These runnable examples use `package:image` to decode,
+apply EXIF orientation, and extract straight 8-bit RGBA pixels at original
+resolution before hashing and comparing two images:
+
+```sh
+dart pub get
+# No arguments: generate and compare PNG/BMP versions of the same image.
+dart run example/file_images.dart
+dart run example/stream_images.dart
+# Your own files (any format supported by package:image):
+dart run example/file_images.dart first.jpg second.png
+dart run example/stream_images.dart first.jpg second.png
+```
+
+- [`file_images.dart`](example/file_images.dart) reads files with
+  `File.readAsBytes()`. Its generated demo files are deleted afterward.
+- [`stream_images.dart`](example/stream_images.dart) demonstrates in-memory
+  encoded `Uint8List` data and a chunked `Stream<List<int>>`; with paths, it
+  uses `File.openRead()`. HTTP response streams or `stdin` can be passed to
+  the same `hashImageStream` helper.
+- [`image_helpers.dart`](example/image_helpers.dart) shares decoding and
+  comparison logic. It prints hashes, quality scores, and Hamming distance,
+  discards either image with quality <= 49, then treats distance <= 31 as a
+  suggested match. Tune these thresholds for your application.
+
+The decoder is a **dev dependency only**; the core runtime remains
+dependency-free. To reuse these helpers in your application, add `image` to
+that application's dependencies. The stream example buffers the entire encoded
+image before decoding; it is not incremental decoding or constant-memory
+hashing. Bound input sizes for untrusted data. Unsupported or corrupt images
+and file/stream errors propagate to the caller rather than producing a hash.
+For animated images, this example hashes the decoder's default (first) frame,
+not every frame. Alpha is ignored, not composited.
+
 ## Flutter
 
 Decode images using your application's existing decoder. Apply EXIF orientation
