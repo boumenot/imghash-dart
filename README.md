@@ -76,10 +76,43 @@ The decoder is a **dev dependency only**; the core runtime remains
 dependency-free. To reuse these helpers in your application, add `image` to
 that application's dependencies. The stream example buffers the entire encoded
 image before decoding; it is not incremental decoding or constant-memory
-hashing. Bound input sizes for untrusted data. Unsupported or corrupt images
-and file/stream errors propagate to the caller rather than producing a hash.
-For animated images, this example hashes the decoder's default (first) frame,
-not every frame. Alpha is ignored, not composited.
+hashing. Bound input sizes for untrusted data. Unsupported images, decoder
+failures, and file/stream errors propagate to the caller instead of returning
+a fallback hash. However, decoders can tolerate malformed or incomplete files,
+so a successful decode does **not** guarantee image integrity.
+
+JPEG inputs (identified by SOI `FF D8`) must contain a complete end-of-image
+marker (`FF D9`) before they are decoded. The check skips marker-segment
+payloads, so an EXIF thumbnail's EOI cannot substitute for the main image's
+termination, and allows bytes after the main EOI (such as trailing padding).
+Missing termination throws `FormatException`, preventing a truncated JPEG
+from becoming a plausible high-quality hash through the decoder's tolerant
+partial decoding. EOI presence does **not** prove that all image data is intact;
+other formats still rely on the decoder's validation.
+
+A stream ending normally does not prove a complete download. Before hashing
+downloaded bytes, verify the expected byte count (for example, an HTTP
+`Content-Length` when available and applicable to the delivered bytes); use a
+trusted checksum when integrity matters. The helpers do not fetch URLs or
+validate transport metadata.
+
+Only the selected first image is decoded, oriented, converted, and hashed;
+later animation frames and ICO entries are not pixel-decoded or converted.
+GIF and animated WebP frame zero are placed on the logical canvas using the
+decoder's background, transparency, offset, and blending policy, rather than
+hashing a cropped frame patch. Disposal affects subsequent frames, not this
+first displayed canvas. ICO uses **directory entry zero**, not the largest
+entry, preserving the example's original selection for valid files. A corrupt
+selected image is an error; the helper does not fall back to later frames.
+
+PNG/APNG uses the decoder's **IDAT/default image**. If an APNG has a separate
+static preview excluded from its animation, that preview is hashed:
+`package:image` 4.13.0 does not expose that animation's first FDAT image through
+its frame-zero API. Container parsing can still scan later frame metadata and
+retain compressed data; selective decoding is not constant-memory streaming.
+Only the first image is compared, so identical first images do not imply
+identical animations or icon sets. Alpha is ignored by PDQ, not composited
+onto an application-chosen background.
 
 ## Flutter
 

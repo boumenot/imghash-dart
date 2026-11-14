@@ -4,10 +4,7 @@ import 'package:image/image.dart' as img;
 import 'package:imghash/imghash.dart';
 
 PdqResult hashEncodedImage(Uint8List encodedBytes) {
-  final decoded = img.decodeImage(encodedBytes);
-  if (decoded == null) {
-    throw FormatException('Unsupported or invalid encoded image');
-  }
+  final decoded = decodeFirstImage(encodedBytes);
   // PDQ expects original-resolution, straight (not premultiplied) 8-bit pixels.
   final oriented = img.bakeOrientation(decoded);
   final rgba = oriented.convert(format: img.Format.uint8, numChannels: 4);
@@ -18,9 +15,136 @@ PdqResult hashEncodedImage(Uint8List encodedBytes) {
   );
 }
 
+img.Image decodeFirstImage(Uint8List encodedBytes) {
+  _requireJpegEndMarker(encodedBytes);
+  final decoder = img.findDecoderForData(encodedBytes);
+  final img.Image? decoded;
+  if (decoder is img.GifDecoder) {
+    final info = decoder.startDecode(encodedBytes);
+    final patch = info == null ? null : decoder.decodeFrame(0);
+    decoded =
+        info == null || patch == null ? null : _firstGifCanvas(patch, info);
+  } else if (decoder is img.WebPDecoder) {
+    final info = decoder.startDecode(encodedBytes);
+    final patch = info == null ? null : decoder.decodeFrame(0);
+    if (info == null || patch == null) {
+      decoded = null;
+    } else if (!info.hasAnimation) {
+      decoded = patch;
+    } else {
+      // WebP starts with a zeroed canvas, not the ANIM background color.
+      final canvas = img.Image(
+        width: info.width,
+        height: info.height,
+        numChannels: patch.numChannels,
+        format: patch.format,
+        exif: info.exif.isEmpty
+            ? null
+            : img.ExifData.fromInputBuffer(
+                img.InputBuffer(info.exif.codeUnits)),
+      );
+      final frame = info.frames.first;
+      decoded = img.compositeImage(
+        canvas,
+        patch,
+        dstX: frame.x,
+        dstY: frame.y,
+        blend: frame.blendFrame ? img.BlendMode.alpha : img.BlendMode.direct,
+      );
+    }
+  } else {
+    // Includes ICO entry zero and PNG's IDAT/default image.
+    decoded = decoder?.decode(encodedBytes, frame: 0);
+  }
+  if (decoded == null) {
+    throw FormatException('Unsupported or invalid first image');
+  }
+  return decoded;
+}
+
+void _requireJpegEndMarker(Uint8List bytes) {
+  if (bytes.length < 2 || bytes[0] != 0xff || bytes[1] != 0xd8) {
+    return;
+  }
+  var offset = 2;
+  while (offset < bytes.length) {
+    if (bytes[offset++] != 0xff) {
+      continue;
+    }
+    while (offset < bytes.length && bytes[offset] == 0xff) {
+      offset++;
+    }
+    if (offset == bytes.length) {
+      break;
+    }
+    final marker = bytes[offset++];
+    if (marker == 0xd9) {
+      return; // Valid JPEGs can have bytes after EOI.
+    }
+    // Entropy byte stuffing, restart markers, and TEM have no length field.
+    if (marker == 0 || marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      continue;
+    }
+    if (marker == 0xd8 || offset + 2 > bytes.length) {
+      break;
+    }
+    final length = (bytes[offset] << 8) | bytes[offset + 1];
+    if (length < 2) {
+      break;
+    }
+    // Skip segment payloads: EXIF thumbnails can contain their own FF D9.
+    offset += length;
+  }
+  throw FormatException(
+      'JPEG is missing a complete end-of-image (FF D9) marker');
+}
+
+img.Image _firstGifCanvas(img.Image patch, img.GifInfo info) {
+  final palette = patch.palette!;
+  var clearIndex = 0;
+  num? closestDistance;
+  final global = info.globalColorMap;
+  final background = info.backgroundColor?.r.toInt() ?? 0;
+  // Match the decoder's canvas policy: first transparent palette entry, or
+  // the nearest opaque color to the global background in this local palette.
+  for (var i = 0; i < palette.numColors; i++) {
+    if (palette.getAlpha(i) == 0) {
+      clearIndex = i;
+      break;
+    }
+    if (global != null && background < global.numColors) {
+      final dr = palette.getRed(i) - global.red(background);
+      final dg = palette.getGreen(i) - global.green(background);
+      final db = palette.getBlue(i) - global.blue(background);
+      final distance = dr * dr + dg * dg + db * db;
+      if (closestDistance == null || distance < closestDistance) {
+        clearIndex = i;
+        closestDistance = distance;
+      }
+    }
+  }
+  final canvas = img.Image(
+    width: info.width,
+    height: info.height,
+    numChannels: 1,
+    palette: palette,
+  );
+  final pixels = canvas.toUint8List()
+    ..fillRange(0, info.width * info.height, clearIndex);
+  final frame = info.frames.first;
+  for (final pixel in patch) {
+    if (pixel.a != 0) {
+      pixels[(pixel.y + frame.y) * info.width + pixel.x + frame.x] =
+          pixel.index.toInt();
+    }
+  }
+  return canvas;
+}
+
 Future<PdqResult> hashImageStream(Stream<List<int>> encodedChunks) async {
   // Encoded chunks are not pixel rows. Buffer the complete file before decoding.
-  final bytes = BytesBuilder(copy: false);
+  // Snapshot each chunk because producers may reuse their buffers.
+  final bytes = BytesBuilder();
   await for (final chunk in encodedChunks) {
     bytes.add(chunk);
   }
