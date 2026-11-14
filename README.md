@@ -78,8 +78,23 @@ that application's dependencies. The stream example buffers the entire encoded
 image before decoding; it is not incremental decoding or constant-memory
 hashing. Bound input sizes for untrusted data. Unsupported or corrupt images
 and file/stream errors propagate to the caller rather than producing a hash.
-For animated images, this example hashes the decoder's default (first) frame,
-not every frame. Alpha is ignored, not composited.
+Only the selected first image is decoded, oriented, converted, and hashed;
+later animation frames and ICO entries are not pixel-decoded or converted.
+GIF and animated WebP frame zero are placed on the logical canvas using the
+decoder's background, transparency, offset, and blending policy, rather than
+hashing a cropped frame patch. Disposal affects subsequent frames, not this
+first displayed canvas. ICO uses **directory entry zero**, not the largest
+entry, preserving the example's original selection for valid files. A corrupt
+selected image is an error; the helper does not fall back to later frames.
+
+PNG/APNG uses the decoder's **IDAT/default image**. If an APNG has a separate
+static preview excluded from its animation, that preview is hashed:
+`package:image` 4.13.0 does not expose that animation's first FDAT image through
+its frame-zero API. Container parsing can still scan later frame metadata and
+retain compressed data; selective decoding is not constant-memory streaming.
+Only the first image is compared, so identical first images do not imply
+identical animations or icon sets. Alpha is ignored by PDQ, not composited
+onto an application-chosen background.
 
 ## Flutter
 

@@ -7,7 +7,142 @@ import 'package:test/test.dart';
 
 import '../example/image_helpers.dart';
 
+void expectFirstImage(Uint8List encoded) {
+  final animation = img.decodeImage(encoded)!;
+  expect(animation.numFrames, greaterThan(1));
+  final selected = decodeFirstImage(encoded);
+  expect(selected.numFrames, 1);
+  expect(selected.width, animation.width);
+  expect(selected.height, animation.height);
+  expect(
+    selected.getBytes(order: img.ChannelOrder.rgba),
+    animation.getBytes(order: img.ChannelOrder.rgba),
+  );
+  final first = img.Image.from(animation, noAnimation: true);
+  final oriented = img.bakeOrientation(first);
+  final rgba = oriented.convert(format: img.Format.uint8, numChannels: 4);
+  final expected = const Pdq().calculate(
+    rgba.getBytes(order: img.ChannelOrder.rgba),
+    width: rgba.width,
+    height: rgba.height,
+  );
+  final actual = hashEncodedImage(encoded);
+  expect(actual.hash, expected.hash);
+  expect(actual.quality, expected.quality);
+}
+
 void main() {
+  for (final transparent in [false, true]) {
+    test('GIF first patch retains logical canvas (transparent: $transparent)',
+        () {
+      final palette = img.PaletteUint8(256, 4);
+      for (var i = 0; i < palette.numColors; i++) {
+        palette.setRgba(i, 0, 0, 0, 255);
+      }
+      palette
+        ..setRgba(0, 10, 20, 30, transparent ? 0 : 255)
+        ..setRgba(1, 220, 110, 60, 255);
+      final first = img.Image(
+        width: 8,
+        height: 6,
+        numChannels: 1,
+        palette: palette,
+      );
+      for (final pixel in first) {
+        pixel.index = (pixel.x + pixel.y) % 2;
+      }
+      first.addFrame(img.Image.from(first, noAnimation: true));
+      final encoded = img.encodeGif(first);
+      // Expand the logical screen and position the first encoded patch.
+      final header = ByteData.sublistView(encoded);
+      header.setUint16(6, 20, Endian.little);
+      header.setUint16(8, 18, Endian.little);
+      final descriptor = encoded.indexOf(0x2c, 13);
+      expect(descriptor, greaterThan(0));
+      header.setUint16(descriptor + 1, 4, Endian.little);
+      header.setUint16(descriptor + 3, 2, Endian.little);
+      expectFirstImage(encoded);
+      final selected = decodeFirstImage(encoded);
+      expect(selected.getPixel(0, 0).a, transparent ? 0 : 255);
+      expect(selected.getPixel(5, 2).r, 220);
+    });
+  }
+
+  for (final blend in [false, true]) {
+    test('WebP first patch retains logical canvas (blend: $blend)', () {
+      final first = img.Image(width: 8, height: 6, numChannels: 4);
+      for (final pixel in first) {
+        pixel.setRgba(pixel.x * 30, pixel.y * 40, 100, (pixel.x % 3) * 127);
+      }
+      first.exif.imageIfd.orientation = 6;
+      first.backgroundColor = img.ColorRgba8(255, 0, 0, 255);
+      first.addFrame(img.Image.from(first, noAnimation: true));
+      final encoded = img.encodeWebP(first);
+      final data = ByteData.sublistView(encoded);
+      var changedFrame = false;
+      for (var offset = 12; offset < encoded.length;) {
+        final type = String.fromCharCodes(encoded.sublist(offset, offset + 4));
+        final size = data.getUint32(offset + 4, Endian.little);
+        final payload = offset + 8;
+        if (type == 'VP8X') {
+          encoded[payload + 4] = 23; // 24x18 canvas, dimensions minus one.
+          encoded[payload + 7] = 17;
+        } else if (type == 'ANMF' && !changedFrame) {
+          encoded[payload] = 2; // Stored coordinates are halved: (4, 2).
+          encoded[payload + 3] = 1;
+          encoded[payload + 15] = blend ? 0 : 2;
+          changedFrame = true;
+        }
+        offset += 8 + size + (size & 1);
+      }
+      expect(changedFrame, isTrue);
+      expectFirstImage(encoded);
+      final selected = decodeFirstImage(encoded);
+      expect(selected.getPixel(0, 0).a, 0);
+      expect(selected.exif.imageIfd.orientation, 6);
+    });
+  }
+
+  test('APNG selects only its default IDAT image', () {
+    final first = img.decodePng(demoImageBytes().first)!;
+    first.addFrame(img.copyRotate(first, angle: 180));
+    expectFirstImage(img.encodePng(first));
+  });
+
+  test('ICO selects entry zero without decoding a corrupt later entry', () {
+    final first = img.copyCrop(
+      img.decodePng(demoImageBytes().first)!,
+      x: 0,
+      y: 0,
+      width: 32,
+      height: 24,
+    );
+    final encoded = img.IcoEncoder().encodeImages([
+      first,
+      img.decodePng(demoImageBytes().first)!,
+    ]);
+    expectFirstImage(encoded);
+    final data = ByteData.sublistView(encoded);
+    final secondOffset = data.getUint32(6 + 16 + 12, Endian.little);
+    // Corrupt the second entry's IDAT checksum while keeping its PNG header.
+    for (var offset = secondOffset + 8; offset < encoded.length;) {
+      final size = data.getUint32(offset, Endian.big);
+      final type =
+          String.fromCharCodes(encoded.sublist(offset + 4, offset + 8));
+      if (type == 'IDAT') {
+        encoded[offset + 8 + size] ^= 1;
+        break;
+      }
+      offset += 12 + size;
+    }
+    expect(() => img.decodeIco(encoded), throwsA(isA<img.ImageException>()));
+    final actual = hashEncodedImage(encoded);
+    final expected = hashEncodedImage(img.encodePng(first));
+    expect(actual.hash, expected.hash);
+    expect(actual.quality, expected.quality);
+    expect(decodeFirstImage(encoded).width, 32);
+  });
+
   test('encoded images and arbitrarily chunked streams hash the same pixels',
       () async {
     final demo = demoImageBytes();
