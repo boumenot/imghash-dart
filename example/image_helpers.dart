@@ -16,6 +16,7 @@ PdqResult hashEncodedImage(Uint8List encodedBytes) {
 }
 
 img.Image decodeFirstImage(Uint8List encodedBytes) {
+  _requireJpegEndMarker(encodedBytes);
   final decoder = img.findDecoderForData(encodedBytes);
   final img.Image? decoded;
   if (decoder is img.GifDecoder) {
@@ -59,6 +60,43 @@ img.Image decodeFirstImage(Uint8List encodedBytes) {
     throw FormatException('Unsupported or invalid first image');
   }
   return decoded;
+}
+
+void _requireJpegEndMarker(Uint8List bytes) {
+  if (bytes.length < 2 || bytes[0] != 0xff || bytes[1] != 0xd8) {
+    return;
+  }
+  var offset = 2;
+  while (offset < bytes.length) {
+    if (bytes[offset++] != 0xff) {
+      continue;
+    }
+    while (offset < bytes.length && bytes[offset] == 0xff) {
+      offset++;
+    }
+    if (offset == bytes.length) {
+      break;
+    }
+    final marker = bytes[offset++];
+    if (marker == 0xd9) {
+      return; // Valid JPEGs can have bytes after EOI.
+    }
+    // Entropy byte stuffing, restart markers, and TEM have no length field.
+    if (marker == 0 || marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      continue;
+    }
+    if (marker == 0xd8 || offset + 2 > bytes.length) {
+      break;
+    }
+    final length = (bytes[offset] << 8) | bytes[offset + 1];
+    if (length < 2) {
+      break;
+    }
+    // Skip segment payloads: EXIF thumbnails can contain their own FF D9.
+    offset += length;
+  }
+  throw FormatException(
+      'JPEG is missing a complete end-of-image (FF D9) marker');
 }
 
 img.Image _firstGifCanvas(img.Image patch, img.GifInfo info) {

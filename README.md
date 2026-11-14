@@ -76,8 +76,26 @@ The decoder is a **dev dependency only**; the core runtime remains
 dependency-free. To reuse these helpers in your application, add `image` to
 that application's dependencies. The stream example buffers the entire encoded
 image before decoding; it is not incremental decoding or constant-memory
-hashing. Bound input sizes for untrusted data. Unsupported or corrupt images
-and file/stream errors propagate to the caller rather than producing a hash.
+hashing. Bound input sizes for untrusted data. Unsupported images, decoder
+failures, and file/stream errors propagate to the caller instead of returning
+a fallback hash. However, decoders can tolerate malformed or incomplete files,
+so a successful decode does **not** guarantee image integrity.
+
+JPEG inputs (identified by SOI `FF D8`) must contain a complete end-of-image
+marker (`FF D9`) before they are decoded. The check skips marker-segment
+payloads, so an EXIF thumbnail's EOI cannot substitute for the main image's
+termination, and allows bytes after the main EOI (such as trailing padding).
+Missing termination throws `FormatException`, preventing a truncated JPEG
+from becoming a plausible high-quality hash through the decoder's tolerant
+partial decoding. EOI presence does **not** prove that all image data is intact;
+other formats still rely on the decoder's validation.
+
+A stream ending normally does not prove a complete download. Before hashing
+downloaded bytes, verify the expected byte count (for example, an HTTP
+`Content-Length` when available and applicable to the delivered bytes); use a
+trusted checksum when integrity matters. The helpers do not fetch URLs or
+validate transport metadata.
+
 Only the selected first image is decoded, oriented, converted, and hashed;
 later animation frames and ICO entries are not pixel-decoded or converted.
 GIF and animated WebP frame zero are placed on the logical canvas using the

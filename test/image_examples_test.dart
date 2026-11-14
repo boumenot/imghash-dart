@@ -32,6 +32,76 @@ void expectFirstImage(Uint8List encoded) {
 }
 
 void main() {
+  test('complete JPEGs hash from bytes and streams, including trailing padding',
+      () async {
+    final source = img.decodePng(demoImageBytes().first)!;
+    final encoded = img.encodeJpg(source);
+    final expected = hashEncodedImage(encoded);
+    expect(expected.quality, greaterThan(49));
+    final padded = Uint8List.fromList([...encoded, 0, 0, 0]);
+    final actual = hashEncodedImage(padded);
+    expect(actual.hash, expected.hash);
+    expect(actual.quality, expected.quality);
+    final streamed = await hashImageStream(
+      Stream<List<int>>.fromIterable(
+          [padded.sublist(0, 17), padded.sublist(17)]),
+    );
+    expect(streamed.hash, expected.hash);
+    expect(streamed.quality, expected.quality);
+  });
+
+  for (final percent in [50, 90]) {
+    test(
+        'truncated JPEG prefix at $percent% is rejected from bytes and streams',
+        () async {
+      final encoded = img.encodeJpg(img.decodePng(demoImageBytes().first)!);
+      final truncated = Uint8List.sublistView(
+        encoded,
+        0,
+        encoded.length * percent ~/ 100,
+      );
+      final partial = img.decodeJpg(truncated)!;
+      final tolerantResult = const Pdq().calculate(
+        partial.getBytes(order: img.ChannelOrder.rgba),
+        width: partial.width,
+        height: partial.height,
+      );
+      expect(tolerantResult.quality, greaterThan(49));
+      expect(() => hashEncodedImage(truncated), throwsFormatException);
+      await expectLater(
+        hashImageStream(Stream<List<int>>.fromIterable([
+          truncated.sublist(0, 17),
+          truncated.sublist(17),
+        ])),
+        throwsFormatException,
+      );
+    });
+  }
+
+  test('EOI bytes inside JPEG metadata do not satisfy image termination', () {
+    final encoded = img.encodeJpg(img.decodePng(demoImageBytes().first)!);
+    // APP15 payload with FF D9, like an embedded thumbnail's end marker.
+    final withMetadata = Uint8List.fromList([
+      0xff,
+      0xd8,
+      0xff,
+      0xef,
+      0,
+      4,
+      0xff,
+      0xd9,
+      ...encoded.sublist(2),
+    ]);
+    final expected = hashEncodedImage(encoded);
+    expect(hashEncodedImage(withMetadata).hash, expected.hash);
+    expect(
+      () => hashEncodedImage(
+        Uint8List.sublistView(withMetadata, 0, withMetadata.length - 2),
+      ),
+      throwsFormatException,
+    );
+  });
+
   for (final transparent in [false, true]) {
     test('GIF first patch retains logical canvas (transparent: $transparent)',
         () {
