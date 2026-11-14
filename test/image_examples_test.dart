@@ -25,6 +25,28 @@ void main() {
     expect(comparisonVerdict(expected, streamed), startsWith('Match:'));
   });
 
+  test('stream chunks are snapshotted when the producer reuses its buffer',
+      () async {
+    final encoded = demoImageBytes().first;
+    final expected = hashEncodedImage(encoded);
+
+    Stream<List<int>> reusedChunks() async* {
+      final scratch = Uint8List(1024);
+      for (var offset = 0; offset < encoded.length; offset += scratch.length) {
+        final end = offset + scratch.length < encoded.length
+            ? offset + scratch.length
+            : encoded.length;
+        scratch.setRange(0, end - offset, encoded, offset);
+        yield Uint8List.sublistView(scratch, 0, end - offset);
+      }
+      scratch.fillRange(0, scratch.length, 0);
+    }
+
+    final actual = await hashImageStream(reusedChunks());
+    expect(actual.hash, expected.hash);
+    expect(actual.quality, expected.quality);
+  });
+
   test('EXIF orientation is applied before hashing JPEG pixels', () {
     final source = img.decodePng(demoImageBytes().first)!;
     final cropped = img.copyCrop(source, x: 0, y: 0, width: 97, height: 73);

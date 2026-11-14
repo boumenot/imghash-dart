@@ -20,7 +20,8 @@ PdqResult hashEncodedImage(Uint8List encodedBytes) {
 
 Future<PdqResult> hashImageStream(Stream<List<int>> encodedChunks) async {
   // Encoded chunks are not pixel rows. Buffer the complete file before decoding.
-  final bytes = BytesBuilder(copy: false);
+  // Snapshot each chunk because producers may reuse their buffers.
+  final bytes = BytesBuilder();
   await for (final chunk in encodedChunks) {
     bytes.add(chunk);
   }
