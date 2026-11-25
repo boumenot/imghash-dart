@@ -4,6 +4,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'luminance.dart';
 import 'pdq_hash.dart';
 
 /// Channel layout of an unpacked, 8-bit pixel buffer.
@@ -68,20 +69,7 @@ final class Pdq {
     }
 
     final luma = Float32List(width * height);
-    for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        final offset = y * stride + x * format.channels;
-        if (format == PdqPixelFormat.grayscale) {
-          luma[y * width + x] = pixels[offset].toDouble();
-        } else {
-          luma[y * width + x] = _f32(
-            _f32(_f32(_red * pixels[offset]) +
-                    _f32(_green * pixels[offset + 1])) +
-                _f32(_blue * pixels[offset + 2]),
-          );
-        }
-      }
-    }
+    computeLuminance(pixels, width, height, stride, format.channels, luma);
 
     final small = Float32List(64 * 64);
     if (width == 64 && height == 64) {
@@ -130,10 +118,6 @@ double _f32(double value) {
   _rounding[0] = value;
   return _rounding[0];
 }
-
-final _red = _f32(0.299);
-final _green = _f32(0.587);
-final _blue = _f32(0.114);
 
 void _box(
   Float32List input,

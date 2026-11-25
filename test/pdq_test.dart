@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:imghash/imghash.dart';
+import 'package:imghash/src/luminance.dart';
 import 'package:test/test.dart';
 
 Uint8List fixturePixels(int width, int height, int mode) {
@@ -52,6 +53,42 @@ void main() {
         expect(result.quality, vector['quality']);
         expect(pixels, original);
       });
+    }
+  });
+
+  test('RGB and RGBA luminance preserves reference float32 rounding', () {
+    const colors = <(int, int, int, int)>[
+      (0, 0, 0, 0x00000000),
+      (255, 255, 255, 0x437f0000),
+      (255, 0, 0, 0x42987d70),
+      (0, 255, 0, 0x4315af5c),
+      (0, 0, 255, 0x41e88f5c),
+      (1, 1, 1, 0x3f800000),
+      (15, 91, 222, 0x42a66b85),
+      (250, 100, 5, 0x4306051f),
+      (128, 128, 129, 0x43001d2f),
+      (3, 47, 251, 0x42646666),
+      (37, 173, 29, 0x42e7d70a),
+      (254, 1, 127, 0x42b605a1),
+    ];
+    const width = 6;
+    const height = 2;
+    for (final channels in [3, 4]) {
+      final stride = width * channels + 5;
+      final backing = Uint8List(7 + (height - 1) * stride + width * channels);
+      backing.fillRange(0, backing.length, 0xcc);
+      final pixels = Uint8List.sublistView(backing, 7);
+      for (var i = 0; i < colors.length; i++) {
+        final offset = (i ~/ width) * stride + (i % width) * channels;
+        pixels[offset] = colors[i].$1;
+        pixels[offset + 1] = colors[i].$2;
+        pixels[offset + 2] = colors[i].$3;
+        if (channels == 4) pixels[offset + 3] = i * 19;
+      }
+      final actual = Float32List(width * height);
+      computeLuminance(pixels, width, height, stride, channels, actual);
+      expect(
+          actual.buffer.asUint32List(), [for (final color in colors) color.$4]);
     }
   });
 

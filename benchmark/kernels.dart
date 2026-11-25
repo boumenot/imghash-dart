@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../lib/src/luminance.dart' as production;
+
 typedef Kernel = void Function(
   Uint8List pixels,
   int width,
@@ -93,34 +95,6 @@ void store(
   }
 }
 
-void hoisted(
-  Uint8List pixels,
-  int width,
-  int height,
-  int stride,
-  int channels,
-  Float32List luma,
-) {
-  if (channels == 1) {
-    for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        luma[y * width + x] = pixels[y * stride + x].toDouble();
-      }
-    }
-  } else {
-    var out = 0;
-    for (var y = 0; y < height; y++) {
-      var offset = y * stride;
-      final end = offset + width * channels;
-      for (; offset < end; offset += channels) {
-        luma[out++] =
-            f32(redLut[pixels[offset]] + greenLut[pixels[offset + 1]]) +
-                blueLut[pixels[offset + 2]];
-      }
-    }
-  }
-}
-
 void simd(
   Uint8List pixels,
   int width,
@@ -183,6 +157,6 @@ final kernels = <String, Kernel>{
   'baseline': baseline,
   'lut': lut,
   'store': store,
-  'hoisted': hoisted,
+  'hoisted': production.computeLuminance,
   'simd': simd,
 };

@@ -205,6 +205,9 @@ application.
 
 Memory usage is O(width * height): for non-64x64 input, two float32 image buffers
 use about 8 bytes per pixel, in addition to the caller's decoded pixels.
+RGB/RGBA conversion also uses three float32 lookup tables, totaling 3 KiB per
+isolate. The implementation and measured results are described in the
+[luminance benchmark](benchmark/RESULTS.md).
 
 ## Development and reference verification
 
