@@ -3,13 +3,13 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import '../.dart_tool/luminance_benchmark/baseline.dart' as base;
-import '../.dart_tool/luminance_benchmark/lut.dart' as lut;
-import '../.dart_tool/luminance_benchmark/store.dart' as store;
-import '../.dart_tool/luminance_benchmark/hoisted.dart' as hoisted;
-import '../.dart_tool/luminance_benchmark/simd.dart' as simd;
-import '../lib/src/pdq_hash.dart';
-import 'kernels.dart' as k;
+import 'baseline.dart' as base;
+import 'lut.dart' as lut;
+import 'store.dart' as store;
+import 'simd.dart' as simd;
+import '../../lib/src/pdq.dart' as hoisted;
+import '../../lib/src/pdq_hash.dart';
+import '../../benchmark/kernels.dart' as k;
 
 typedef Calculate = PdqResult Function(
   Uint8List pixels,
