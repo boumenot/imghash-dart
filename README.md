@@ -208,6 +208,45 @@ use about 8 bytes per pixel, in addition to the caller's decoded pixels.
 
 ## Development and reference verification
 
+### Optional Nix and direnv setup
+
+Install [Nix](https://nixos.org/download/) and enable flakes and the Nix command
+in your user Nix configuration (`~/.config/nix/nix.conf`):
+
+```text
+experimental-features = nix-command flakes
+```
+
+Run `nix develop` from the checkout root to enter a shell with the Dart SDK.
+The committed `flake.lock` pins the SDK's Nixpkgs revision for reproducible
+development on macOS and Linux (Apple Silicon/ARM64 or x86-64). This setup
+provides Dart, not Flutter or the optional C++ reference toolchain; it does not
+automatically fetch Dart package dependencies.
+Nixpkgs 26.05 is used to retain Intel macOS support; its pinned Dart SDK is
+3.11.6. The package lockfile resolves dependencies compatible with that SDK.
+
+For automatic activation in your existing shell, install
+[direnv](https://direnv.net/) and optionally
+[nix-direnv](https://github.com/nix-community/nix-direnv) for cached environments.
+Follow nix-direnv's installation instructions to enable its direnv integration.
+The root `.envrc` contains `use flake`, which loads the development environment
+without starting an interactive Bash shell. For zsh, add this hook to your own
+`~/.zshrc` unless your machine configuration already enables it:
+
+```zsh
+eval "$(direnv hook zsh)"
+```
+
+Restart zsh, review `.envrc`, and run `direnv allow` from the checkout root.
+Approve each checkout/worktree separately and reapprove after `.envrc` changes.
+direnv unloads the environment when you leave the checkout; its local
+`.direnv/` cache is ignored. Nix's flakes settings are still required. Other
+shells should use the corresponding hook from direnv's documentation.
+
+### Package checks
+
+With Dart installed directly or through the development shell:
+
 ```sh
 dart pub get
 dart analyze
