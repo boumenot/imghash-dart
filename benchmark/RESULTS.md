@@ -62,9 +62,19 @@ medians improved by 1.01-1.06x, but their spreads overlap and previous
 confirmation runs included regressions. The measurements do not establish a
 reliable full-hash speedup.
 
+### Dart 3.11.6 recheck
+
+After rebasing onto the pinned Nix flake (Dart 3.11.6), a shorter AOT run with
+7 samples measured isolated luminance speedups of 1.16-1.25x. Full-calculate
+medians ranged from 0.95x to 1.04x. The 64x64 cases were about 5% slower in
+two driver runs. A separate interleaved A/A test showed that this was
+measurement noise, not a regression. It compared the baseline, an identical
+copy of the production library, and production. Identical copies differed by
+up to 3%, and production matched or beat baseline.
+
 ## Method and limitations
 
-- Measured on 2026-11-24 with Dart SDK 3.14.1, macOS 26.7.3, arm64, Apple
+- Measured on 2026-11-24 with Dart SDK 3.14.1 (rechecked with 3.11.6), macOS 26.7.3, arm64, Apple
   A18 Pro, six logical CPUs and 8 GiB RAM. JIT used `dart run`; AOT used
   `dart compile exe`. This was not a dedicated, frequency-locked machine.
 - Inputs were seeded, tightly packed RGB/RGBA buffers at 64x64, 512x512,
